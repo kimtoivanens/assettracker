@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import Fastify from 'fastify'
 import assetRoutes from './routes/assets'
 import snapshotRoutes from './routes/snapshots'
