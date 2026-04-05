@@ -14,13 +14,14 @@ function fmtP(n: number) { return (n >= 0 ? '+' : '') + n.toFixed(1) + '%' }
 export default function Trends() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
-  const [tab, setTab] = useState<'overview' | 'trends' | 'forecast' | 'sim'>('overview')
-  const [simRet, setSimRet] = useState(7)
-  const [simSave, setSimSave] = useState(5000)
-  const [simInt, setSimInt] = useState(3)
-  const [simProp, setSimProp] = useState(2)
-  const [simYears, setSimYears] = useState(10)
-  const [simInf, setSimInf] = useState(2)
+  const [tab, setTab] = useState<'overview' | 'trends' | 'forecast'>('overview')
+  const [stockRet, setStockRet] = useState(7)
+  const [propGrowth, setPropGrowth] = useState(3)
+  const [bankRet, setBankRet] = useState(2)
+  const [monthlySave, setMonthlySave] = useState(5000)
+  const [salaryGrowth, setSalaryGrowth] = useState(3)
+  const [years, setYears] = useState(10)
+  const [inflation, setInflation] = useState(2)
 
   useEffect(() => {
     getSnapshots().then(data => setSnapshots([...data].sort((a, b) => a.month.localeCompare(b.month))))
@@ -47,7 +48,6 @@ export default function Trends() {
     alert('Snapshot sparad för ' + month + '!')
   }
 
-
   const prev1m = snapshots[snapshots.length - 2]
   const prev1y = snapshots[snapshots.length - 13]
   const first = snapshots[0]
@@ -64,42 +64,77 @@ export default function Trends() {
     change: s.netValue - snapshots[i].netValue
   }))
 
-  function simulate(sr: number, save: number, lr: number, pg: number, yrs: number) {
-    let s = sum('Aktier & fonder') || netValue * 0.4
-    let b = sum('Bankkonton') || netValue * 0.2
-    let p = sum('Fastigheter') || netValue * 0.5
-    let l = sum('Lån & skulder') || 0
-    const pts = [{ year: 'Nu', value: Math.round(s + b + p - l) }]
+  function simulate(sr: number, pg: number, br: number, save: number, sg: number, yrs: number) {
+    let s = sum('Aktier & fonder') || 0
+    let b = sum('Bankkonton') || 0
+    let p = sum('Fastigheter') || 0
+    const l = sum('Lån & skulder') || 0
+    let monthlySavings = save
+    const pts = [{ year: 'Nu', net: Math.round(s + b + p - l) }]
     for (let i = 1; i <= yrs; i++) {
-      s *= (1 + sr / 100); b += save * 12; p *= (1 + pg / 100)
-      l = Math.max(0, l * (1 + lr / 100) - save * 3)
-      pts.push({ year: `År ${i}`, value: Math.round(s + b + p - l) })
+      s *= (1 + sr / 100)
+      b = b * (1 + br / 100) + monthlySavings * 12
+      p *= (1 + pg / 100)
+      monthlySavings *= (1 + sg / 100)
+      pts.push({ year: `År ${i}`, net: Math.round(s + b + p - l) })
     }
     return pts
   }
 
-  const baseData = simulate(simRet, simSave, simInt, simProp, simYears)
-  const pessData = simulate(simRet * 0.4, simSave * 0.7, simInt * 1.3, simProp * 0.3, simYears)
-  const optData = simulate(simRet * 1.5, simSave * 1.3, simInt * 0.7, simProp * 2, simYears)
-  const realData = baseData.map((d, i) => ({ ...d, value: Math.round(d.value / Math.pow(1 + simInf / 100, i)) }))
+  const baseData = simulate(stockRet, propGrowth, bankRet, monthlySave, salaryGrowth, years)
+  const pessData = simulate(stockRet * 0.5, propGrowth * 0.5, bankRet * 0.5, monthlySave * 0.7, salaryGrowth * 0.5, years)
+  const optData = simulate(stockRet * 1.5, propGrowth * 1.5, bankRet * 1.3, monthlySave * 1.3, salaryGrowth * 1.5, years)
+  const realData = baseData.map((d, i) => ({ ...d, net: Math.round(d.net / Math.pow(1 + inflation / 100, i)) }))
 
-  const simChartData = baseData.map((d, i) => ({
+  const chartData = baseData.map((d, i) => ({
     year: d.year,
-    Basscenarion: d.value,
-    Pessimistiskt: pessData[i].value,
-    Optimistiskt: optData[i].value,
-    Realt: realData[i].value,
+    Basscenarion: d.net,
+    Pessimistiskt: pessData[i].net,
+    Optimistiskt: optData[i].net,
+    Realt: realData[i].net,
   }))
 
-  const forecastData = [0, 1, 2, 3, 4, 5].map(y => ({
-    year: y === 0 ? 'Nu' : `${y} år`,
-    'Pessimistiskt (4%)': Math.round(netValue * Math.pow(1.04, y)),
-    'Bas (7%)': Math.round(netValue * Math.pow(1.07, y)),
-    'Optimistiskt (10%)': Math.round(netValue * Math.pow(1.10, y)),
-  }))
+  const assumptions = [
+    {
+      label: 'Pessimistiskt', color: '#FCEBEB', text: '#A32D2D',
+      val: pessData[pessData.length - 1].net,
+      items: [
+        `Aktier: ${(stockRet * 0.5).toFixed(1)}% /år`,
+        `Fastighet: ${(propGrowth * 0.5).toFixed(1)}% /år`,
+        `Bank: ${(bankRet * 0.5).toFixed(1)}% /år`,
+        `Sparande: ${Math.round(monthlySave * 0.7).toLocaleString('sv-SE')} kr/mån`,
+        `Löneutveckling: ${(salaryGrowth * 0.5).toFixed(1)}% /år`,
+        `Lån: oförändrat`,
+      ]
+    },
+    {
+      label: 'Basscenarion', color: '#E6F1FB', text: '#185FA5',
+      val: baseData[baseData.length - 1].net,
+      items: [
+        `Aktier: ${stockRet}% /år`,
+        `Fastighet: ${propGrowth}% /år`,
+        `Bank: ${bankRet}% /år`,
+        `Sparande: ${monthlySave.toLocaleString('sv-SE')} kr/mån`,
+        `Löneutveckling: ${salaryGrowth}% /år`,
+        `Lån: oförändrat`,
+      ]
+    },
+    {
+      label: 'Optimistiskt', color: '#E1F5EE', text: '#0F6E56',
+      val: optData[optData.length - 1].net,
+      items: [
+        `Aktier: ${(stockRet * 1.5).toFixed(1)}% /år`,
+        `Fastighet: ${(propGrowth * 1.5).toFixed(1)}% /år`,
+        `Bank: ${(bankRet * 1.3).toFixed(1)}% /år`,
+        `Sparande: ${Math.round(monthlySave * 1.3).toLocaleString('sv-SE')} kr/mån`,
+        `Löneutveckling: ${(salaryGrowth * 1.5).toFixed(1)}% /år`,
+        `Lån: oförändrat`,
+      ]
+    },
+  ]
 
-  const tabs = ['overview', 'trends', 'forecast', 'sim'] as const
-  const tabLabels = ['Översikt', 'Trender', 'Prognos', 'Simulering']
+  const tabs = ['overview', 'trends', 'forecast'] as const
+  const tabLabels = ['Översikt', 'Trender', 'Prognos']
 
   return (
     <div>
@@ -119,7 +154,7 @@ export default function Trends() {
               <div className="text-xs text-gray-500 mb-1">Nettovärde</div>
               <div className={`text-lg font-semibold ${netValue >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(netValue)}</div>
             </div>
-            {[{label:'1 mån', d: delta(prev1m)}, {label:'1 år', d: delta(prev1y)}, {label:'Totalt', d: delta(first)}].map(({label, d}) => (
+            {[{ label: '1 mån', d: delta(prev1m) }, { label: '1 år', d: delta(prev1y) }, { label: 'Totalt', d: delta(first) }].map(({ label, d }) => (
               <div key={label} className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="text-xs text-gray-500 mb-1">Förändring {label}</div>
                 {d ? <>
@@ -179,7 +214,7 @@ export default function Trends() {
             )}
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Snapshots</h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Historiska snapshots</h3>
             {snapshots.length === 0 && <p className="text-sm text-gray-400">Inga snapshots ännu.</p>}
             {[...snapshots].reverse().map(s => (
               <div key={s.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
@@ -194,64 +229,33 @@ export default function Trends() {
       {tab === 'forecast' && (
         <div>
           <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Prognos 5 år</h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={forecastData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => (v / 1000000).toFixed(1) + 'M'} />
-                <Tooltip formatter={(v: any) => fmt(v)} />
-                <Line type="monotone" dataKey="Pessimistiskt (4%)" stroke="#A32D2D" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
-                <Line type="monotone" dataKey="Bas (7%)" stroke="#185FA5" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="Optimistiskt (10%)" stroke="#0F6E56" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Pessimistiskt (4%)', val: forecastData[5]['Pessimistiskt (4%)'], color: '#FCEBEB', text: '#A32D2D' },
-              { label: 'Basscenarion (7%)', val: forecastData[5]['Bas (7%)'], color: '#E6F1FB', text: '#185FA5' },
-              { label: 'Optimistiskt (10%)', val: forecastData[5]['Optimistiskt (10%)'], color: '#E1F5EE', text: '#0F6E56' },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl p-4 border border-gray-100" style={{ background: s.color }}>
-                <div className="text-xs font-medium mb-1" style={{ color: s.text }}>{s.label}</div>
-                <div className="text-lg font-semibold" style={{ color: s.text }}>{fmt(s.val)}</div>
-                <div className="text-xs mt-1" style={{ color: s.text }}>{fmtP((s.val - netValue) / (netValue || 1) * 100)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tab === 'sim' && (
-        <div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Parametrar</h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-4">Justera basscenariot</h3>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { label: 'Avkastning aktier/år', val: simRet, set: setSimRet, min: 0, max: 20, unit: '%' },
-                { label: 'Månatligt sparande', val: simSave, set: setSimSave, min: 0, max: 50000, step: 500, unit: ' kr' },
-                { label: 'Räntekostnad lån', val: simInt, set: setSimInt, min: 0, max: 10, step: 0.5, unit: '%' },
-                { label: 'Fastighetsökning/år', val: simProp, set: setSimProp, min: -5, max: 15, unit: '%' },
-                { label: 'Tidshorisont', val: simYears, set: setSimYears, min: 1, max: 30, unit: ' år' },
-                { label: 'Inflation', val: simInf, set: setSimInf, min: 0, max: 10, step: 0.5, unit: '%' },
+                { label: 'Aktier avkastning/år', val: stockRet, set: setStockRet, min: 0, max: 20, step: 0.5, unit: '%' },
+                { label: 'Fastighetsökning/år', val: propGrowth, set: setPropGrowth, min: -5, max: 15, step: 0.5, unit: '%' },
+                { label: 'Bankränta/år', val: bankRet, set: setBankRet, min: 0, max: 10, step: 0.5, unit: '%' },
+                { label: 'Månatligt sparande', val: monthlySave, set: setMonthlySave, min: 0, max: 50000, step: 500, unit: ' kr' },
+                { label: 'Löneutveckling/år', val: salaryGrowth, set: setSalaryGrowth, min: 0, max: 10, step: 0.5, unit: '%' },
+                { label: 'Tidshorisont', val: years, set: setYears, min: 1, max: 30, step: 1, unit: ' år' },
+                { label: 'Inflation', val: inflation, set: setInflation, min: 0, max: 10, step: 0.5, unit: '%' },
               ].map(({ label, val, set, min, max, step, unit }) => (
                 <div key={label}>
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
                     <span>{label}</span>
-                    <span className="font-medium text-gray-900">{typeof val === 'number' && val > 100 ? val.toLocaleString('sv-SE') : val}{unit}</span>
+                    <span className="font-medium text-gray-900">{val > 100 ? val.toLocaleString('sv-SE') : val}{unit}</span>
                   </div>
-                  <input type="range" min={min} max={max} step={step || 1} value={val}
-                    onChange={e => set(parseFloat(e.target.value))}
-                    className="w-full" />
+                  <input type="range" min={min} max={max} step={step} value={val}
+                    onChange={e => set(parseFloat(e.target.value))} className="w-full" />
                 </div>
               ))}
             </div>
           </div>
+
           <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Simulerad utveckling</h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-4">Prognos {years} år</h3>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={simChartData}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={v => (v / 1000000).toFixed(1) + 'M'} />
@@ -263,18 +267,25 @@ export default function Trends() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="grid grid-cols-4 gap-4">
-            {[
-              { label: 'Pessimistiskt', val: pessData[pessData.length - 1].value, color: 'text-red-500' },
-              { label: 'Basscenarion', val: baseData[baseData.length - 1].value, color: 'text-green-600' },
-              { label: 'Optimistiskt', val: optData[optData.length - 1].value, color: 'text-green-600' },
-              { label: 'Realt', val: realData[realData.length - 1].value, color: 'text-amber-600' },
-            ].map(s => (
-              <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-                <div className="text-xs text-gray-500 mb-1">{s.label}</div>
-                <div className={`text-sm font-semibold ${s.color}`}>{fmt(s.val)}</div>
+
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {assumptions.map(s => (
+              <div key={s.label} className="rounded-xl p-4 border border-gray-100" style={{ background: s.color }}>
+                <div className="text-xs font-medium mb-2" style={{ color: s.text }}>{s.label}</div>
+                <div className="text-lg font-semibold mb-1" style={{ color: s.text }}>{fmt(s.val)}</div>
+                <div className="text-xs font-medium mb-2" style={{ color: s.text }}>{fmtP((s.val - netValue) / (netValue || 1) * 100)}</div>
+                <div className="border-t pt-2" style={{ borderColor: s.text + '33' }}>
+                  {s.items.map(item => (
+                    <div key={item} className="text-xs mt-1" style={{ color: s.text }}>{item}</div>
+                  ))}
+                </div>
               </div>
             ))}
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-xs text-gray-500 mb-1">Realt värde basscenarion (inflationsjusterat med {inflation}%)</div>
+            <div className="text-sm font-semibold text-amber-600">{fmt(realData[realData.length - 1].net)}</div>
           </div>
         </div>
       )}
