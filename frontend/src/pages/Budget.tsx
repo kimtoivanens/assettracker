@@ -1,49 +1,80 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getCategories, createCategory, updateCategory, deleteCategory, getTransactions, createTransaction, deleteTransaction } from '../api/assets'
 
 type Category = { id: number; name: string; color: string; budget: number }
-type Transaction = { id: number; desc: string; amount: number; categoryId: number; date: string }
+type Transaction = { id: number; desc: string; amount: number; categoryId: number; date: string; category: Category }
 
-const DEFAULT_CATS: Category[] = [
-  { id: 1, name: 'Mat & dagligvaror', color: '#185FA5', budget: 5000 },
-  { id: 2, name: 'Transport', color: '#0F6E56', budget: 2000 },
-  { id: 3, name: 'Restaurang & nöje', color: '#BA7517', budget: 3000 },
-  { id: 4, name: 'Boende', color: '#534AB7', budget: 12000 },
-  { id: 5, name: 'Hälsa', color: '#993556', budget: 1000 },
-  { id: 6, name: 'Sparande', color: '#27500A', budget: 5000 },
+const DEFAULT_CATS = [
+  { name: 'Mat & dagligvaror', color: '#185FA5', budget: 5000 },
+  { name: 'Transport', color: '#0F6E56', budget: 2000 },
+  { name: 'Restaurang & nöje', color: '#BA7517', budget: 3000 },
+  { name: 'Boende', color: '#534AB7', budget: 12000 },
+  { name: 'Hälsa', color: '#993556', budget: 1000 },
+  { name: 'Sparande', color: '#27500A', budget: 5000 },
 ]
 
 export default function Budget() {
-  const [cats, setCats] = useState<Category[]>(DEFAULT_CATS)
+  const [cats, setCats] = useState<Category[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [tab, setTab] = useState<'month' | 'transactions' | 'settings'>('month')
   const [newDesc, setNewDesc] = useState('')
   const [newAmt, setNewAmt] = useState('')
-  const [newCatId, setNewCatId] = useState(1)
+  const [newCatId, setNewCatId] = useState<number>(0)
   const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10))
   const [newCatName, setNewCatName] = useState('')
   const [newCatBudget, setNewCatBudget] = useState('')
   const [newCatColor, setNewCatColor] = useState('#7F77DD')
 
   const now = new Date()
-  const monthTx = transactions.filter(t => {
-    const d = new Date(t.date)
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  })
+  const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0')
 
-  const spentFor = (catId: number) => monthTx.filter(t => t.categoryId === catId).reduce((s, t) => s + t.amount, 0)
+  useEffect(() => {
+    getCategories().then(data => {
+      if (data.length === 0) {
+        Promise.all(DEFAULT_CATS.map(c => createCategory(c))).then(created => {
+          setCats(created)
+          setNewCatId(created[0]?.id || 0)
+        })
+      } else {
+        setCats(data)
+        setNewCatId(data[0]?.id || 0)
+      }
+    })
+    getTransactions(currentMonth).then(setTransactions)
+  }, [])
+
+  const spentFor = (catId: number) => transactions.filter(t => t.categoryId === catId).reduce((s, t) => s + t.amount, 0)
   const totalBudget = cats.reduce((s, c) => s + c.budget, 0)
-  const totalSpent = monthTx.reduce((s, t) => s + t.amount, 0)
+  const totalSpent = transactions.reduce((s, t) => s + t.amount, 0)
 
-  const addTx = () => {
-    if (!newDesc || !newAmt) return
-    setTransactions(prev => [...prev, { id: Date.now(), desc: newDesc, amount: parseFloat(newAmt), categoryId: newCatId, date: newDate }])
+  const addTx = async () => {
+    if (!newDesc || !newAmt || !newCatId) return
+    const tx = await createTransaction({ desc: newDesc, amount: parseFloat(newAmt), categoryId: newCatId, date: newDate })
+    setTransactions(prev => [tx, ...prev])
     setNewDesc(''); setNewAmt('')
   }
 
-  const addCat = () => {
+  const removeTx = async (id: number) => {
+    await deleteTransaction(id)
+    setTransactions(prev => prev.filter(t => t.id !== id))
+  }
+
+  const addCat = async () => {
     if (!newCatName) return
-    setCats(prev => [...prev, { id: Date.now(), name: newCatName, color: newCatColor, budget: parseFloat(newCatBudget) || 0 }])
+    const cat = await createCategory({ name: newCatName, color: newCatColor, budget: parseFloat(newCatBudget) || 0 })
+    setCats(prev => [...prev, cat])
     setNewCatName(''); setNewCatBudget('')
+  }
+
+  const removeCat = async (id: number) => {
+    await deleteCategory(id)
+    setCats(prev => prev.filter(c => c.id !== id))
+    setTransactions(prev => prev.filter(t => t.categoryId !== id))
+  }
+
+  const updateBudget = async (cat: Category, budget: number) => {
+    await updateCategory(cat.id, { name: cat.name, color: cat.color, budget })
+    setCats(prev => prev.map(c => c.id === cat.id ? { ...c, budget } : c))
   }
 
   const tabs = ['month', 'transactions', 'settings'] as const
@@ -118,19 +149,16 @@ export default function Budget() {
             </div>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            {monthTx.length === 0 && <p className="text-sm text-gray-400">Inga transaktioner denna månad.</p>}
-            {[...monthTx].reverse().map(t => {
-              const cat = cats.find(c => c.id === t.categoryId)
-              return (
-                <div key={t.id} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                  <span className="flex-1 text-sm text-gray-700">{t.desc}</span>
-                  {cat && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: cat.color + '22', color: cat.color }}>{cat.name}</span>}
-                  <span className="text-sm font-medium text-red-500">{t.amount.toLocaleString('sv-SE')} kr</span>
-                  <span className="text-xs text-gray-400">{t.date.slice(5)}</span>
-                  <button onClick={() => setTransactions(prev => prev.filter(tx => tx.id !== t.id))} className="text-red-400 text-xs">×</button>
-                </div>
-              )
-            })}
+            {transactions.length === 0 && <p className="text-sm text-gray-400">Inga transaktioner denna månad.</p>}
+            {transactions.map(t => (
+              <div key={t.id} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                <span className="flex-1 text-sm text-gray-700">{t.desc}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: t.category.color + '22', color: t.category.color }}>{t.category.name}</span>
+                <span className="text-sm font-medium text-red-500">{t.amount.toLocaleString('sv-SE')} kr</span>
+                <span className="text-xs text-gray-400">{t.date.slice(5)}</span>
+                <button onClick={() => removeTx(t.id)} className="text-red-400 text-xs">×</button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -143,9 +171,9 @@ export default function Budget() {
                 <div className="w-3 h-3 rounded-full" style={{ background: c.color }} />
                 <span className="flex-1 text-sm text-gray-700">{c.name}</span>
                 <input type="number" className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right" value={c.budget}
-                  onChange={e => setCats(prev => prev.map(cat => cat.id === c.id ? { ...cat, budget: parseFloat(e.target.value) || 0 } : cat))} />
+                  onChange={e => updateBudget(c, parseFloat(e.target.value) || 0)} />
                 <span className="text-xs text-gray-400">kr/mån</span>
-                <button onClick={() => setCats(prev => prev.filter(cat => cat.id !== c.id))} className="text-red-400 text-xs">×</button>
+                <button onClick={() => removeCat(c.id)} className="text-red-400 text-xs">×</button>
               </div>
             ))}
           </div>

@@ -25,3 +25,22 @@ model Snapshot {
   loans     Float    @default(0)
   createdAt DateTime @default(now())
 }
+
+model BudgetCategory {
+  id           Int           @id @default(autoincrement())
+  name         String
+  color        String
+  budget       Float
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
+}
+
+model Transaction {
+  id         Int            @id @default(autoincrement())
+  desc       String
+  amount     Float
+  date       String
+  categoryId Int
+  category   BudgetCategory @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime       @default(now())
+}
